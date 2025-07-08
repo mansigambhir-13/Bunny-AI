@@ -1,0 +1,8 @@
+{
+  "room": "test_room",
+  "identity": "voice_agent",
+  "user_metadata": {
+    "user_id": "test_user_livekit",
+    "session_type": "voice_test"
+  }
+}
