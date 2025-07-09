@@ -8,6 +8,9 @@
 
 **A production-ready voice-based AI agent that learns and adapts its personality to each individual user through natural conversation, built on LiveKit + Deepgram with comprehensive evolution tracking and real-time quality evaluation.**
 
+## Visual Recording Demo 
+https://www.loom.com/share/054f027022d94b958e7765e55ecf77ad?sid=7065e94c-ef25-4339-ace6-2948ab2ef436
+
 ## Documentation 
 https://docs.google.com/document/d/1kcMHwTysuBq1ypkgk3FL3sE4sKa_LBziaXqwwNkDi9w/edit?usp=sharing
 
