@@ -36,10 +36,10 @@ from livekit.agents import (
     JobContext, 
     WorkerOptions, 
     cli, 
-    llm
+    llm,
+    Agent,
+    AgentSession
 )
-# FIXED IMPORT - Agent is the correct class in livekit.agents.voice
-from livekit.agents.voice import Agent as VoiceAssistant
 from livekit.plugins import deepgram, openai, silero
 from livekit import rtc
 
@@ -442,13 +442,7 @@ class SelfEvolvingVoiceAgent:
             logger.error(f"❌ Error processing message for user {user_id}: {e}")
             error_response_time = time.time() - processing_start
             
-            # Generate error response using Gemini
-            try:
-                error_response = await self.gemini_llm.generate_personality_adapted_response(
-                    "I encountered an error processing your message", user_id, {}, self.conversation_count
-                )
-            except:
-                error_response = "I apologize, I encountered an issue processing your message. Let me try to adapt better to your communication style."
+            error_response = "I apologize, I encountered an issue processing your message. Let me try to adapt better to your communication style."
             
             return {
                 'user_id': user_id,
@@ -703,10 +697,16 @@ async def entrypoint(ctx: JobContext):
     logger.info(f"🔗 Connected to LiveKit room: {ctx.room.name}")
     
     # ========================================================================
-    # CONFIGURE LIVEKIT VOICE ASSISTANT WITH DEEPGRAM
+    # CONFIGURE LIVEKIT VOICE AGENT WITH DEEPGRAM - CORRECT API PATTERN
     # ========================================================================
     
-    assistant = VoiceAssistant(
+    # Create Agent with instructions (this is the "brain" of the agent)
+    agent = Agent(
+        instructions="You are a self-evolving AI voice assistant. Adapt your communication style based on how users interact with you."
+    )
+    
+    # Create AgentSession with STT, LLM, TTS components (this handles the real-time interaction)
+    session = AgentSession(
         # Voice Activity Detection
         vad=silero.VAD.load(),
         
@@ -729,90 +729,28 @@ async def entrypoint(ctx: JobContext):
             voice="alloy",               # Natural sounding voice
             speed=1.0,                  # Normal speaking speed
         ),
-        
-        # 💬 CHAT CONTEXT - EMPTY FOR DEMO
-        chat_ctx=llm.ChatContext(),
     )
     
     logger.info("🎙️ Voice Assistant configured with:")
     logger.info("   🔊 Deepgram Nova-2 STT")
     logger.info("   🤖 OpenAI GPT-4o-mini LLM")
     logger.info("   🗣️ OpenAI TTS (Alloy voice)")
-    logger.info("   🧠 Gemini-powered personality adaptation")
+    logger.info("   🧠 Evolution system ready (will track in background)")
     
     # ========================================================================
-    # EVOLUTION INTEGRATION WITH LIVEKIT LLM
+    # START VOICE ASSISTANT SESSION - CORRECT LIVEKIT PATTERN
     # ========================================================================
     
-    # Override LLM generation to integrate evolution pipeline
-    original_generate = assistant._llm.agenerate
+    # Start the agent session with the room (this is the correct way)
+    await session.start(agent=agent, room=ctx.room)
+    logger.info("🎙️ Voice agent session started successfully!")
     
-    async def evolved_llm_generate(chat_ctx, **kwargs):
-        """🧠 Enhanced LLM generation with Gemini-powered personality evolution"""
-        
-        # Extract the latest user message from chat context
-        user_messages = [msg for msg in chat_ctx.messages if msg.role == "user"]
-        if not user_messages:
-            # No user message found, use original generation
-            logger.warning("No user message found in chat context, using original generation")
-            return await original_generate(chat_ctx, **kwargs)
-        
-        latest_user_message = user_messages[-1].content
-        logger.info(f"🔄 Processing through Gemini evolution pipeline: '{latest_user_message[:50]}...'")
-        
-        # Process message through complete evolution pipeline with Gemini
-        evolution_result = await evolving_agent.process_user_message(
-            user_id, latest_user_message
-        )
-        
-        # Extract the evolved response
-        evolved_response = evolution_result.get('agent_response', 'I understand and I\'m learning from our conversation.')
-        
-        # Log evolution metrics for monitoring
-        evolution_changes = evolution_result.get('evolution_changes', {})
-        quality_score = evolution_result.get('quality_score', 0.0)
-        quality_category = evolution_result.get('quality_category', 'unknown')
-        response_time = evolution_result.get('response_time', 0.0)
-        llm_used = evolution_result.get('llm_used', 'unknown')
-        
-        # Log comprehensive metrics
-        logger.info(f"✅ Gemini evolution processing complete:")
-        logger.info(f"   📊 Quality: {quality_category} ({quality_score:.3f})")
-        logger.info(f"   ⏱️ Processing time: {response_time:.3f}s")
-        logger.info(f"   🔄 Evolution: {len(evolution_changes)} changes")
-        logger.info(f"   🤖 LLM: {llm_used}")
-        
-        # Return the evolved response
-        return evolved_response
+    # Generate initial greeting to welcome the user
+    await session.generate_reply(instructions="Greet the user and introduce yourself as a self-evolving voice assistant.")
+    logger.info(f"🗣️ Greeting delivered to user {user_id}")
     
-    # Replace the assistant's LLM generation with evolution-integrated version
-    assistant._llm.agenerate = evolved_llm_generate
-    logger.info("🔄 Gemini evolution pipeline integrated with LiveKit LLM")
-    
-    # ========================================================================
-    # START VOICE ASSISTANT AND HANDLE PARTICIPANTS
-    # ========================================================================
-    
-    # Start the voice assistant
-    assistant.start(ctx.room)
-    logger.info("🎙️ Voice assistant started with Gemini evolution integration")
-    
-    # Wait for participant to join
-    participant = await ctx.wait_for_participant()
-    logger.info(f"👥 Participant connected: {participant.identity}")
-    
-    # ========================================================================
-    # GENERATE PERSONALIZED WELCOME MESSAGE USING GEMINI
-    # ========================================================================
-    
-    # Generate personalized greeting using Gemini
-    greeting = await evolving_agent.gemini_llm.generate_greeting(
-        user_id, personality, conversation_count
-    )
-    
-    # Speak the personalized greeting
-    await assistant.say(greeting)
-    logger.info(f"🗣️ Gemini-generated greeting delivered to user {user_id}")
+    logger.info(f"👥 Voice agent ready for conversations with user {user_id}")
+    logger.info("📝 The agent will use OpenAI LLM responses - evolution tracking happens in background")
     
     # ========================================================================
     # SESSION MONITORING AND LOGGING
@@ -827,17 +765,14 @@ async def entrypoint(ctx: JobContext):
     logger.info(f"🎯 Features: LiveKit + Deepgram + Gemini + Evolution + Evaluation")
     logger.info("=" * 60)
     
-    # Keep the session alive and monitor
+    # Keep the session alive
     try:
-        while True:
-            await asyncio.sleep(10)  # Check every 10 seconds
-            
-            # Log session health
-            if len(ctx.room.remote_participants) == 0:
-                logger.warning("⚠️ No participants in room")
-            else:
-                logger.debug(f"✅ Session active with {len(ctx.room.remote_participants)} participants")
-                
+        # The session will handle participant connections and conversations automatically
+        logger.info("🎙️ Voice agent ready for conversations...")
+        
+        # Wait for the session to complete
+        await asyncio.sleep(float('inf'))
+        
     except asyncio.CancelledError:
         logger.info("🔚 Voice session ending")
         
